@@ -1,1 +1,7 @@
 /target
+
+# OpenCode 本地插件依赖（安装时自动生成）
+/.opencode/node_modules/
+/.opencode/package.json
+/.opencode/package-lock.json
+/.opencode/bun.lock
