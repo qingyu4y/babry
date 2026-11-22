@@ -23,7 +23,11 @@ use std::{
 pub enum Backend {
     Niri,
     Hyprland,
+    Mango,
     Kde,
+    /// 其他支持 `zwlr_screencopy` 的合成器，例如一般 wlroots 会话。
+    /// 截图和编辑器可直接工作，但没有窗口 IPC，只能用 CV 智能选区。
+    Other,
 }
 impl Backend {
     pub fn detect() -> Result<Self, String> {
@@ -39,14 +43,20 @@ impl Backend {
         if desktop.contains("hypr") {
             return Ok(Self::Hyprland);
         }
+        if desktop.contains("mango") {
+            return Ok(Self::Mango);
+        }
         if std::env::var_os("NIRI_SOCKET").is_some() {
             Ok(Self::Niri)
         } else if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
             Ok(Self::Hyprland)
+        } else if std::env::var_os("MANGO_INSTANCE_SIGNATURE").is_some() {
+            Ok(Self::Mango)
         } else if std::env::var_os("KDE_FULL_SESSION").is_some() {
             Ok(Self::Kde)
         } else {
-            Err("当前支持 niri、Hyprland 和 KDE Plasma 6.8+".into())
+            // 未知合成器不再直接失败：如果它实现了 screencopy，截图仍可进行。
+            Ok(Self::Other)
         }
     }
 }
@@ -94,6 +104,23 @@ fn niri_query(request: &str) -> Result<Value, String> {
         .cloned()
         .ok_or_else(|| format!("niri IPC 返回错误: {value}"))
 }
+/// MangoWM 的 IPC 与 `mmsg get` 相同：向实例 socket 发送一行命令，读取一行 JSON。
+fn mango_get(target: &str) -> Result<Value, String> {
+    let path =
+        std::env::var_os("MANGO_INSTANCE_SIGNATURE").ok_or("MANGO_INSTANCE_SIGNATURE 未设置")?;
+    let mut socket =
+        UnixStream::connect(path).map_err(|e| format!("连接 MangoWM IPC 失败: {e}"))?;
+    socket
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .map_err(|e| e.to_string())?;
+    writeln!(socket, "get {target}").map_err(|e| e.to_string())?;
+    let mut data = String::new();
+    BufReader::new(socket)
+        .take(4 * 1024 * 1024)
+        .read_line(&mut data)
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str(&data).map_err(|e| format!("MangoWM IPC 返回无效 JSON: {e}"))
+}
 fn hypr_query(request: &str) -> Result<Value, String> {
     use std::io::Read;
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or("XDG_RUNTIME_DIR 未设置")?;
@@ -133,8 +160,33 @@ pub fn focused_name() -> Option<String> {
             .get("name")?
             .as_str()
             .map(str::to_owned),
+        Backend::Mango => mango_focused_output(),
         Backend::Kde => crate::kde::active_output().ok(),
+        Backend::Other => None,
     }
+}
+
+/// MangoWM 的焦点窗口属于光标所在显示器；无客户端时退回活动显示器或光标位置。
+fn mango_focused_output() -> Option<String> {
+    if let Ok(value) = mango_get("focusing-client")
+        && let Some(name) = value["monitor"].as_str()
+    {
+        return Some(name.to_owned());
+    }
+    if let Ok(value) = mango_get("all-monitors")
+        && let Some(monitor) = value["monitors"]
+            .as_array()?
+            .iter()
+            .find(|monitor| monitor["active"] == true)
+        && let Some(name) = monitor["name"].as_str()
+    {
+        return Some(name.to_owned());
+    }
+    mango_get("cursorpos")
+        .ok()?
+        .get("monitor")?
+        .as_str()
+        .map(str::to_owned)
 }
 struct Probe {
     registry: RegistryState,
@@ -363,6 +415,49 @@ fn place_niri_tiles(tiles: &[NiriTile], view: (f64, f64), gap: f64) -> Vec<(f64,
     placed
 }
 
+/// 从 `mmsg get all-clients` 提取截图输出上的可见窗口，焦点窗口排在最前。
+/// 新版 MangoWM 提供 `is_visible`；旧版没有该字段时用显示器活动标签回退。
+fn mango_client_rects(
+    clients: &Value,
+    monitor: &str,
+    active_tags: Option<&[u64]>,
+) -> Vec<(f64, f64, f64, f64)> {
+    let Some(list) = clients["clients"].as_array() else {
+        return Vec::new();
+    };
+    let mut visible: Vec<&Value> = list
+        .iter()
+        .filter(|client| client["monitor"].as_str() == Some(monitor))
+        .filter(|client| client["is_minimized"] != true)
+        .filter(
+            |client| match client.get("is_visible").and_then(Value::as_bool) {
+                Some(visible) => visible,
+                None => active_tags.is_none_or(|tags| {
+                    client["tags"].as_array().is_some_and(|client_tags| {
+                        client_tags
+                            .iter()
+                            .filter_map(Value::as_u64)
+                            .any(|tag| tags.contains(&tag))
+                    })
+                }),
+            },
+        )
+        .collect();
+    visible.sort_by_key(|client| client["is_focused"] != true);
+    visible
+        .into_iter()
+        .filter_map(|client| {
+            Some((
+                client["x"].as_f64()?,
+                client["y"].as_f64()?,
+                client["width"].as_f64()?,
+                client["height"].as_f64()?,
+            ))
+        })
+        .filter(|(_, _, width, height)| *width > 1.0 && *height > 1.0)
+        .collect()
+}
+
 /// 只有合成器公布的可见顶层窗口几何可作为锚点，不假设 IPC 提供应用内部控件。
 pub fn window_regions(output: &OutputInfo, physical: (u32, u32)) -> Vec<RectPx> {
     let sx = physical.0 as f64 / f64::from(output.width);
@@ -490,6 +585,29 @@ pub fn window_regions(output: &OutputInfo, physical: (u32, u32)) -> Vec<RectPx> 
                 }
             }
         }
+        Ok(Backend::Mango) => {
+            // MangoWM 的客户端几何是全局逻辑坐标，与输出位置同一坐标系。
+            let active_tags = mango_get("all-monitors").ok().and_then(|value| {
+                let monitor = value["monitors"]
+                    .as_array()?
+                    .iter()
+                    .find(|monitor| monitor["name"] == output.name.as_str())?;
+                Some(
+                    monitor["active_tags"]
+                        .as_array()?
+                        .iter()
+                        .filter_map(Value::as_u64)
+                        .collect::<Vec<_>>(),
+                )
+            });
+            if let Ok(clients) = mango_get("all-clients") {
+                for (x, y, w, h) in
+                    mango_client_rects(&clients, &output.name, active_tags.as_deref())
+                {
+                    add(x, y, w, h)
+                }
+            }
+        }
         _ => {}
     }
     rects
@@ -558,6 +676,59 @@ mod tests {
             placed
         );
         assert!(close_enough(placed[0].0, placed[1].0));
+    }
+
+    #[test]
+    fn mango_clients_are_filtered_by_monitor_visibility_and_minimized_state() {
+        let clients = serde_json::json!({
+            "clients": [
+                {"monitor": "DP-1", "is_visible": false, "is_minimized": false,
+                 "x": 0.0, "y": 0.0, "width": 100.0, "height": 100.0},
+                {"monitor": "DP-2", "is_visible": true, "is_minimized": false,
+                 "x": 100.0, "y": 0.0, "width": 100.0, "height": 100.0},
+                {"monitor": "DP-1", "is_visible": true, "is_minimized": true,
+                 "x": 0.0, "y": 100.0, "width": 100.0, "height": 100.0},
+                {"monitor": "DP-1", "is_visible": true, "is_minimized": false,
+                 "x": 10.0, "y": 20.0, "width": 300.0, "height": 200.0}
+            ]
+        });
+        assert_eq!(
+            mango_client_rects(&clients, "DP-1", None),
+            vec![(10.0, 20.0, 300.0, 200.0)]
+        );
+    }
+
+    #[test]
+    fn mango_clients_use_active_tags_when_is_visible_is_unavailable() {
+        let clients = serde_json::json!({
+            "clients": [
+                {"monitor": "DP-1", "tags": [1], "is_minimized": false,
+                 "x": 0.0, "y": 0.0, "width": 100.0, "height": 100.0},
+                {"monitor": "DP-1", "tags": [2], "is_minimized": false,
+                 "x": 10.0, "y": 10.0, "width": 200.0, "height": 200.0}
+            ]
+        });
+        assert_eq!(
+            mango_client_rects(&clients, "DP-1", Some(&[2])),
+            vec![(10.0, 10.0, 200.0, 200.0)]
+        );
+        assert_eq!(mango_client_rects(&clients, "DP-1", None).len(), 2);
+    }
+
+    #[test]
+    fn mango_focused_client_comes_first() {
+        let clients = serde_json::json!({
+            "clients": [
+                {"monitor": "DP-1", "is_visible": true, "is_minimized": false,
+                 "is_focused": false, "x": 0.0, "y": 0.0, "width": 100.0, "height": 100.0},
+                {"monitor": "DP-1", "is_visible": true, "is_minimized": false,
+                 "is_focused": true, "x": 200.0, "y": 0.0, "width": 100.0, "height": 100.0}
+            ]
+        });
+        assert_eq!(
+            mango_client_rects(&clients, "DP-1", None),
+            vec![(200.0, 0.0, 100.0, 100.0), (0.0, 0.0, 100.0, 100.0)]
+        );
     }
 
     fn close_enough(a: f64, b: f64) -> bool {

@@ -42,7 +42,7 @@
 - 在同一个界面完成标注、文字、复制、保存和贴图。
 
 > [!NOTE]
-> Babry 当前支持 Linux Wayland 下的 niri、Hyprland 和 KDE Plasma 6.8+，以及 X11 会话（见下文“X11”）。原生编辑器使用 SCTK、Layer-Shell 与 wl_shm；截图像素只在共享内存中保留一份，同时用于显示和导出。
+> Babry 在 Linux Wayland 下为 niri、Hyprland、MangoWM 和 KDE Plasma 6.8+ 提供窗口级智能选区；其他实现了 `zwlr_screencopy` 的 wlroots 系合成器也能直接截图并使用纯 CV 选区。另支持 X11 会话（见下文“X11”）。原生编辑器使用 SCTK、Layer-Shell 与 wl_shm；截图像素只在共享内存中保留一份，同时用于显示和导出。
 
 ## 预览
 
@@ -75,12 +75,12 @@
 | 能力 | 体验 |
 | --- | --- |
 | **CV 智能选区** | 先按 IPC 窗口几何定位，再在每个窗口内以原生分辨率分析；分隔线行/列、纯色连通域与连续边框，原图边界精修、滚轮切换父/子层级 |
-| **全屏截图** | `zwlr_screencopy`（niri/Hyprland）或 KWin 截屏接口（KDE Plasma 6.8+）获取当前 Wayland 桌面，`--screen` 直接进入编辑 |
+| **全屏截图** | `zwlr_screencopy`（niri/Hyprland/MangoWM 及其他 wlroots 合成器）或 KWin 截屏接口（KDE Plasma 6.8+）获取当前 Wayland 桌面，`--screen` 直接进入编辑 |
 | **标注工具** | 画笔、矩形/圆形/方形、圈号递增数字标注、橡皮擦和半透明荧光笔 |
 | **隐私处理** | 局部马赛克与连续轨迹模糊，可调节模糊度 |
 | **原位文字** | 直接在画布输入，多行换行，支持 text-input-v3 输入法；字号、字体和颜色与导出同步 |
 | **工作流** | 实时预览、撤销/重做、保存 PNG、复制到剪贴板、Wayland 贴图 |
-| **轻依赖** | Rust + SCTK + wl_shm + tiny-skia；不需要 grim、Slint、系统 OpenCV、slurp 或 niri 选区命令 |
+| **轻依赖** | Rust + SCTK + wl_shm + tiny-skia；不需要 grim、Slint、系统 OpenCV、slurp 或合成器的选区命令 |
 
 ## 快速开始
 
@@ -156,7 +156,7 @@ install -Dm755 target/release/babry ~/.local/bin/babry
 
 ### 2. 安装运行依赖
 
-截图由 Babry 直接通过 Wayland 协议完成：niri/Hyprland 使用 `zwlr_screencopy`，KDE Plasma 6.8+ 调用 KWin 自带的 `org.kde.KWin.ScreenShot2`，都不需要 `grim`。复制图片需要 `wl-clipboard`；可选的 `notify-send` 用于状态通知。AUR 包已声明 Fontconfig、xkbcommon 和 Wayland 系统库依赖。
+截图由 Babry 直接通过 Wayland 协议完成：niri/Hyprland/MangoWM 等 wlroots 系合成器使用 `zwlr_screencopy`，KDE Plasma 6.8+ 调用 KWin 自带的 `org.kde.KWin.ScreenShot2`，都不需要 `grim`。复制图片需要 `wl-clipboard`；可选的 `notify-send` 用于状态通知。AUR 包已声明 Fontconfig、xkbcommon 和 Wayland 系统库依赖。
 
 Arch Linux：
 
@@ -176,7 +176,7 @@ babry --list-outputs   # 列出当前会话的显示器信息
 babry --help           # 查看完整帮助
 ```
 
-`--window` 和 `-w` 仍作为兼容别名保留，但现在使用 Babry 自己的 CV 选区，不启动 niri 的交互式选择器；只向 niri IPC 查询窗口矩形和焦点顺序。
+`--window` 和 `-w` 仍作为兼容别名保留，但现在使用 Babry 自己的 CV 选区，不启动 niri 的交互式选择器；niri 和 MangoWM 只用 IPC 查询窗口矩形和焦点顺序，其他合成器直接做整屏 CV。
 
 ### 图片保存目录
 
@@ -230,6 +230,12 @@ Hyprland 可加入：
 
 ```ini
 exec-once = babry --daemon
+```
+
+MangoWM 可加入：
+
+```ini
+exec_once=babry --daemon
 ```
 
 常驻后台只监听 Unix socket；截图编辑会话按请求启动并在保存/取消后退出，因此不会在空闲状态初始化 Wayland surface、字体或绘图缓冲区。
@@ -293,7 +299,7 @@ niri 26.04 的 IPC 不返回平铺窗口的 `tile_pos_in_workspace_view`（只�
 
 ## 合成器与多显示器
 
-Babry 会根据 `XDG_CURRENT_DESKTOP` 与合成器环境变量（`NIRI_SOCKET`、`HYPRLAND_INSTANCE_SIGNATURE`、`KDE_FULL_SESSION`）选择 niri、Hyprland 或 KDE Plasma 6.8+，读取每个显示器的名称、逻辑位置、逻辑尺寸和缩放比例。
+Babry 会根据 `XDG_CURRENT_DESKTOP` 与合成器环境变量（`NIRI_SOCKET`、`HYPRLAND_INSTANCE_SIGNATURE`、`MANGO_INSTANCE_SIGNATURE`、`KDE_FULL_SESSION`）选择 niri、Hyprland、MangoWM、KDE Plasma 6.8+，或退回到通用 wlroots 路径；随后读取每个显示器的名称、逻辑位置、逻辑尺寸和缩放比例。
 
 ```bash
 babry --list-outputs
@@ -301,9 +307,19 @@ babry --output DP-1 --screen
 babry --output DP-1 --pin image.png
 ```
 
-`--output NAME` 可以与截图或贴图命令组合。显示器名称、逻辑位置和尺寸通过 Wayland `wl_output`/`xdg_output` 读取，分数缩放由当前 mode 的物理尺寸除以逻辑尺寸推导；焦点显示器通过 niri/Hyprland 的 IPC socket 或 KWin 的 `org.kde.KWin.activeOutputName()` 查询。默认只截取焦点显示器：niri/Hyprland 使用 `zwlr_screencopy` 把像素直接写入共享内存，KDE 调用 KWin 的 `org.kde.KWin.ScreenShot2` D-Bus 接口（返回原始像素，不经过 XDG Portal；Plasma 6.8 起无需额外桌面文件声明）。编辑覆盖层绑定到被截取的显示器。无法获取焦点时使用第一个启用的显示器；指定不存在的显示器会报错。
+`--output NAME` 可以与截图或贴图命令组合。显示器名称、逻辑位置和尺寸通过 Wayland `wl_output`/`xdg_output` 读取，分数缩放由当前 mode 的物理尺寸除以逻辑尺寸推导；焦点显示器通过 niri/Hyprland/MangoWM 的 IPC socket 或 KWin 的 `org.kde.KWin.activeOutputName()` 查询。默认只截取焦点显示器：niri/Hyprland/MangoWM 等 wlroots 系合成器使用 `zwlr_screencopy` 把像素直接写入共享内存，KDE 调用 KWin 的 `org.kde.KWin.ScreenShot2` D-Bus 接口（返回原始像素，不经过 XDG Portal；Plasma 6.8 起无需额外桌面文件声明）。编辑覆盖层绑定到被截取的显示器。无法获取焦点时使用第一个启用的显示器；指定不存在的显示器会报错。
 
 当前截图按指定显示器单独捕获，贴图初始尺寸也按目标显示器的逻辑尺寸和缩放计算。跨显示器拖动、把同一张贴图动态迁移到另一块输出，以及不同输出间的实时 layer-shell 重绑定仍在完善中。
+
+### MangoWM
+
+- 通过 `MANGO_INSTANCE_SIGNATURE` 指向的 IPC socket 读取客户端几何，不依赖 `mmsg` 可执行文件。焦点显示器来自 `focusing-client`，没有焦点客户端时退回活动显示器或光标所在输出。
+- 窗口种子按输出和当前活动标签过滤，焦点窗口作为首帧默认选区；窗口内部仍由 CV 分析具体控件。MangoWM 返回的窗口坐标是全局逻辑坐标并包含边框，Babry 会换算成截图像素。
+- 截图、编辑器和贴图使用与其他 wlroots 合成器相同的 `zwlr_screencopy`、layer-shell 和 `wp_viewporter` 路径。
+
+### 其他 wlroots 合成器
+
+没有专用 IPC 适配的合成器会走通用路径：只要实现 `zwlr_screencopy`、layer-shell 和 `wp_viewporter`，就能截图、编辑和贴图，但智能选区没有窗口种子，只能使用整屏 CV。此时 `--output` 仍可按名称选择显示器，焦点显示器无法查询时使用第一个启用的输出。
 
 ### X11
 
@@ -322,9 +338,11 @@ babry --output DP-1 --pin image.png
 - Plasma 6.8 之前的 ScreenShot2 需要桌面文件声明 `X-KDE-DBUS-Restricted-Interfaces`，Babry 暂不支持这些版本。
 - KWin 在锁屏/熄屏期间返回黑帧，属安全行为，与 XDG Portal 一致。
 
-## niri 配置
+## 合成器配置
 
-编辑器和贴图都是 layer-shell 表面，不需要窗口规则。推荐快捷键：
+编辑器和贴图都是 layer-shell 表面，不需要窗口规则。
+
+niri：
 
 ```kdl
 binds {
@@ -332,6 +350,23 @@ binds {
     Mod+Shift+F { spawn "babry" "--screen"; }
 }
 ```
+
+Hyprland：
+
+```ini
+bind = SUPER SHIFT, S, exec, babry
+bind = SUPER SHIFT, F, exec, babry --screen
+```
+
+MangoWM：
+
+```ini
+exec_once=babry --daemon
+bind=SUPER+SHIFT,S,spawn,babry
+bind=SUPER+SHIFT,F,spawn,babry --screen
+```
+
+其他支持 layer-shell 和 `zwlr_screencopy` 的 wlroots 合成器可直接绑定 `babry` 和 `babry --screen`；没有窗口 IPC 时选区会自动退回整屏 CV。
 
 ## 字体配置
 
@@ -349,7 +384,7 @@ TrueType Collection（`.ttc`）可以通过 `BABRY_FONT_INDEX` 选择字体索�
 
 ```text
 Wayland 桌面
-    │  zwlr_screencopy（niri/Hyprland）或 KWin ScreenShot2（KDE Plasma 6.8+）
+    │  zwlr_screencopy（niri/Hyprland/MangoWM 等 wlroots）或 KWin ScreenShot2（KDE Plasma 6.8+）
     ▼
 memfd 共享内存截图 ──────────────┐  唯一的整屏像素副本
     │                            │
@@ -407,7 +442,7 @@ cargo build --release --locked
 
 测试覆盖 CLI、保存目录配置、后台协议、memfd 图像的通道规范化与八种输出旋转/翻转、标注图层（橡皮擦顺序、图形内部透明、瓦片与整图渲染的效果一致性）、分数缩放瓦片边界、跨条带的流式 PNG 导出、智能选区的层级切换、窗口种子平移、无位置假设的焦点窗口定位与窗口内小控件检测，以及贴图边缘判定。
 
-真实 Wayland 回归测试位于 `tests/wayland_editor.rs`，会发送鼠标和按键事件，因此默认忽略。请在专门的 KDE/niri 测试会话中串行执行：
+真实 Wayland 回归测试位于 `tests/wayland_editor.rs`，会发送鼠标和按键事件，因此默认忽略。请在专门的 KDE/niri/MangoWM 测试会话中串行执行：
 
 ```bash
 BABRY_TEST_ARTIFACTS=/tmp/babry-wayland-tests \
@@ -446,7 +481,8 @@ babry --debug-selection screenshot.png /tmp/babry-cv-debug
 ## 当前边界
 
 - CV 识别不到明确边界时会回退到全屏，仍可拖动鼠标精确框选。
-- 编辑器和贴图需要合成器支持 `wp_viewporter`；niri、Hyprland 和 KWin 均支持。
+- 编辑器和贴图需要合成器支持 `wp_viewporter`；niri、Hyprland、MangoWM 和 KWin 均支持。
+- 通用 wlroots 路径只做整屏 CV，没有窗口级种子；要获得窗口内控件级别的吸附，需要为合成器补充 IPC 适配。
 - 输入法预编辑依赖合成器转发 `text-input-v3`；不支持时仍可直接键入。
 - 跨显示器拖动 Pin、OCR、贴图持久化尚未实现；长截图暂不支持向上或横向滚动。
 - X11 下文字工具不支持输入法，没有窗口级智能选区。

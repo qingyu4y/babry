@@ -25,6 +25,7 @@
 
           buildInputs = with pkgs; [
             fontconfig
+            libxcb
             libxkbcommon
             systemd
             wayland
@@ -113,7 +114,9 @@
           default = pkgs.mkShell {
             packages = with pkgs; [
               cargo
+              clippy
               fontconfig
+              libxcb
               libxkbcommon
               pkg-config
               rustc

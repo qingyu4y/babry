@@ -117,6 +117,7 @@ pub fn socket_path() -> Result<PathBuf, String> {
     display.hash(&mut hash);
     std::env::var_os("NIRI_SOCKET").hash(&mut hash);
     std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").hash(&mut hash);
+    std::env::var_os("MANGO_INSTANCE_SIGNATURE").hash(&mut hash);
     Ok(PathBuf::from(runtime)
         .join(format!("babry-{:x}", hash.finish()))
         .join("control.sock"))
