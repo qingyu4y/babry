@@ -349,11 +349,13 @@ pub struct Scene {
     menu: Panel,
     caret: Plane,
     error: Panel,
+    notice: Panel,
     tiles: Tiles,
     label_key: Option<(String, IRect)>,
     toolbar_key: Option<ToolbarKey>,
     menu_key: Option<(ToolbarKey, Option<native_ui::Menu>, IRect)>,
     error_key: Option<(String, IRect)>,
+    notice_key: Option<(String, IRect)>,
 }
 
 pub struct SceneInput<'a> {
@@ -527,6 +529,7 @@ impl Scene {
         let menu = panel()?;
         let caret = plane()?;
         let error = panel()?;
+        let notice = panel()?;
         let tiles = Tiles::new(shm, connection.display(), logical, scale, step)?;
         Ok(Self {
             logical,
@@ -553,11 +556,13 @@ impl Scene {
             menu,
             caret,
             error,
+            notice,
             tiles,
             label_key: None,
             toolbar_key: None,
             menu_key: None,
             error_key: None,
+            notice_key: None,
         })
     }
 
@@ -575,6 +580,7 @@ impl Scene {
                 self.menu.plane,
                 self.caret,
                 self.error.plane,
+                self.notice.plane,
             ])
             .chain(
                 self.tiles
@@ -801,6 +807,31 @@ impl Scene {
         } else {
             changed |= self.error.hide();
             self.error_key = None;
+        }
+
+        if ui.error.is_none()
+            && let Some(notice) = &ui.notice
+        {
+            let b = native_ui::notice_box(self.logical, self.grid());
+            let rect = self.panel_rect(b, 0.0);
+            if self.notice_key.as_ref() != Some(&(notice.clone(), rect)) {
+                let size = self.physical_size(rect);
+                let transform = native_ui::plane_transform((rect.0 as f32, rect.1 as f32), scale);
+                if self
+                    .notice
+                    .render(&mut self.panel_pool, rect, size, |bytes, size| {
+                        native_ui::draw_notice(bytes, size, transform, b, notice, fonts)
+                    })?
+                {
+                    self.notice_key = Some((notice.clone(), rect));
+                    changed = true;
+                } else {
+                    complete = false;
+                }
+            }
+        } else {
+            changed |= self.notice.hide();
+            self.notice_key = None;
         }
 
         let pending: Vec<usize> = self.tiles.pending.iter().copied().collect();

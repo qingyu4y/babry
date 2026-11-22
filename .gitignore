@@ -5,3 +5,6 @@
 /.opencode/package.json
 /.opencode/package-lock.json
 /.opencode/bun.lock
+
+# Nix 构建结果
+/result

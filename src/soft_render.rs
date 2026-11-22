@@ -198,6 +198,9 @@ pub fn render(
     if let Some(error) = &ui.error {
         let b: BoxF = native_ui::error_box(logical, ui.grid);
         native_ui::draw_error(frame, size, transform, b, error, fonts)?;
+    } else if let Some(notice) = &ui.notice {
+        let b: BoxF = native_ui::notice_box(logical, ui.grid);
+        native_ui::draw_notice(frame, size, transform, b, notice, fonts)?;
     }
     Ok(())
 }

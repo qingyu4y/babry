@@ -17,6 +17,8 @@
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
           src = self;
           cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--features" "ocr" ];
+          cargoTestFlags = [ "--features" "ocr" ];
 
           nativeBuildInputs = with pkgs; [
             makeWrapper
@@ -27,6 +29,8 @@
             fontconfig
             libxcb
             libxkbcommon
+            oniguruma
+            onnxruntime
             systemd
             wayland
           ];
@@ -34,6 +38,7 @@
           postInstall = ''
             wrapProgram $out/bin/babry \
               --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.systemd ]} \
+              --set ORT_DYLIB_PATH ${pkgs.onnxruntime}/lib/libonnxruntime.so \
               --prefix PATH : ${lib.makeBinPath [ pkgs.fontconfig ]}
           '';
 
@@ -118,12 +123,15 @@
               fontconfig
               libxcb
               libxkbcommon
+              oniguruma
+              onnxruntime
               pkg-config
               rustc
               rustfmt
               systemd
               wayland
             ];
+            ORT_DYLIB_PATH = "${pkgs.onnxruntime}/lib/libonnxruntime.so";
           };
         });
     };

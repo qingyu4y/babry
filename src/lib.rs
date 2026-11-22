@@ -10,6 +10,8 @@ pub mod kde;
 pub mod marks;
 pub mod native_pin;
 pub mod native_ui;
+#[cfg(feature = "ocr")]
+pub mod ocr;
 pub mod pixels;
 pub mod screencopy;
 pub mod shm_image;

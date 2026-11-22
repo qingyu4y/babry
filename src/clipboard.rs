@@ -1,6 +1,6 @@
 //! 复制 PNG 到剪贴板：Wayland 交给 wl-copy；X11 由 babry 自己的后台进程持有选区。
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     path::Path,
     process::{Command, Stdio},
     time::Duration,
@@ -30,6 +30,34 @@ pub fn copy_png(path: &Path) -> Result<(), String> {
         .success()
         .then_some(())
         .ok_or_else(|| format!("wl-copy 失败: {status}"))
+}
+
+/// 复制纯文本到剪贴板。Wayland 使用 wl-copy；X11 需要 xclip。
+pub fn copy_text(text: &str) -> Result<(), String> {
+    let (program, args) = if x11_session() {
+        (
+            "xclip",
+            &["-selection", "clipboard", "-t", "text/plain"][..],
+        )
+    } else {
+        ("wl-copy", &["--type", "text/plain"][..])
+    };
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("无法启动 {program}: {error}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("剪贴板进程没有标准输入")?
+        .write_all(text.as_bytes())
+        .map_err(|error| error.to_string())?;
+    let status = child.wait().map_err(|error| error.to_string())?;
+    status
+        .success()
+        .then_some(())
+        .ok_or_else(|| format!("{program} 失败: {status}"))
 }
 
 /// X11 剪贴板没有服务进程：内容由拥有者在被请求时提供。启动一个独立的

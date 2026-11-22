@@ -133,6 +133,13 @@ pub fn definitions() -> Vec<Icon> {
                 IconShape::Path("M12 7.2v9.2M8.6 13 12 16.4 15.4 13", 1.6),
             ],
         ),
+        Icon::new(
+            "ocr",
+            &[
+                IconShape::Rect(3.5, 4.5, 17.0, 15.0, 1.5, 1.6),
+                IconShape::Path("M7 9h10M7 12.5h8M7 16h6", 1.4),
+            ],
+        ),
         Icon::new("chevron", &[IconShape::Path("m6 9 6 6 6-6", 2.0)]),
     ]
 }

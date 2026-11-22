@@ -92,6 +92,8 @@ pub enum Action {
     Save,
     Cancel,
     Copy,
+    /// 识别当前选区中的文字并复制。
+    Ocr,
     /// 以当前选区开始滚动长截图。
     Longshot,
     Grip,
@@ -119,6 +121,8 @@ pub struct EditorUi {
     pub pressed: Option<Action>,
     pub number_input: Option<(bool, String)>,
     pub error: Option<String>,
+    /// 短暂的操作结果提示（例如 OCR 已复制）。
+    pub notice: Option<String>,
     /// 长截图进行中：长截图按钮高亮并显示为“停止”。
     pub longshot: bool,
     /// 控件对齐的逻辑网格步长；使控件边缘落在整数物理像素上。
@@ -142,6 +146,7 @@ impl Default for EditorUi {
             pressed: None,
             number_input: None,
             error: None,
+            notice: None,
             longshot: false,
             grid: 1.0,
         }
@@ -163,7 +168,7 @@ impl EditorUi {
         }
     }
     pub fn toolbar(&self, screen: (u32, u32), selection: BoxF) -> BoxF {
-        let width = 600.0_f32.min((screen.0 as f32 - 16.0).max(1.0));
+        let width = 636.0_f32.min((screen.0 as f32 - 16.0).max(1.0));
         let height = if self.tool == 0 {
             50.0
         } else if self.tool == 8 && self.effect == 1 {
@@ -388,6 +393,7 @@ impl EditorUi {
             Action::Save => Some("保存 (Ctrl+S)"),
             Action::Cancel => Some("取消截图 (Esc)"),
             Action::Copy => Some("复制 (Ctrl+C)"),
+            Action::Ocr => Some("识别文字 (OCR)"),
             Action::Longshot => Some(if self.longshot {
                 "停止长截图"
             } else {
@@ -448,6 +454,7 @@ const BUTTONS: &[(f32, Action, &str)] = &[
     (450.0, Action::Cancel, "cancle"),
     (486.0, Action::Copy, "copy"),
     (522.0, Action::Longshot, "longshot"),
+    (558.0, Action::Ocr, "ocr"),
 ];
 fn swatch_box(b: BoxF, index: usize) -> BoxF {
     let (x, y, w, h) = if index < 20 {
@@ -773,6 +780,26 @@ pub fn error_box(screen: (u32, u32), grid: f32) -> BoxF {
     }
 }
 
+/// 操作结果提示条的位置。
+pub fn notice_box(screen: (u32, u32), grid: f32) -> BoxF {
+    error_box(screen, grid)
+}
+
+/// 绘制操作结果提示条。
+pub fn draw_notice(
+    bytes: &mut [u8],
+    size: (u32, u32),
+    transform: Transform,
+    b: BoxF,
+    notice: &str,
+    fonts: &mut Fonts,
+) -> Result<(), String> {
+    let mut p = painter(bytes, size, transform)?;
+    p.rect(b, 9.0, [28, 36, 48, 248]);
+    p.text(fonts, notice, b.x + 12.0, b.y + 12.0, 13.0, WHITE);
+    Ok(())
+}
+
 /// 八个选区手柄：四角 8×8，四边中点 10×8 / 8×10，圆角 4。
 pub fn handle_boxes(s: BoxF) -> [BoxF; 8] {
     let (right, bottom) = (s.x + s.width, s.y + s.height);
@@ -945,6 +972,7 @@ pub fn draw_toolbar(
                 | Action::Save
                 | Action::Cancel
                 | Action::Copy
+                | Action::Ocr
                 | Action::Longshot
                 | Action::Grip
         ) {
@@ -1488,6 +1516,7 @@ mod shape_menu_tests {
         assert_eq!(hover(Action::Save), Some("保存 (Ctrl+S)"));
         assert_eq!(hover(Action::Copy), Some("复制 (Ctrl+C)"));
         assert_eq!(hover(Action::Cancel), Some("取消截图 (Esc)"));
+        assert_eq!(hover(Action::Ocr), Some("识别文字 (OCR)"));
         assert_eq!(EditorUi::default().tooltip(Action::Blank), None);
     }
 }

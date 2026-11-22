@@ -1034,6 +1034,30 @@ impl Core {
                     LongshotRequest::Start(self.selection)
                 });
             }
+            Action::Ocr => {
+                self.ui.menu = None;
+                self.ui.error = None;
+                self.ui.notice = None;
+                if self.canvas {
+                    self.ui.notice = Some("长截图时不能识别文字".into());
+                } else {
+                    #[cfg(feature = "ocr")]
+                    match crate::ocr::recognize(&self.source, self.selection)
+                        .and_then(|text| crate::clipboard::copy_text(&text).map(|()| text))
+                    {
+                        Ok(text) => {
+                            self.ui.notice =
+                                Some(format!("已复制 {} 个字符", text.chars().count()));
+                        }
+                        Err(error) => self.ui.error = Some(error),
+                    }
+                    #[cfg(not(feature = "ocr"))]
+                    {
+                        self.ui.notice = Some("此版本未编译 OCR 支持".into());
+                    }
+                }
+                self.dirty = true;
+            }
             Action::Dismiss | Action::Blank => self.ui.menu = None,
             Action::Grip
             | Action::Width
@@ -1161,6 +1185,7 @@ impl Core {
 
     pub fn handle_press(&mut self, position: (f64, f64)) {
         self.ui.error = None;
+        self.ui.notice = None;
         if self.ui.number_input.is_some() {
             self.finish_number_input();
         }

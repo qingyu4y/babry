@@ -68,7 +68,7 @@
   <img src="docs/images/toolbar-context.png" alt="Babry 工具栏细节" width="96%">
 </div>
 
-工具栏提供矩形/圆形/方形/直线/箭头、画笔、文字、递增数字标注、马赛克/高斯模糊、橡皮擦、荧光笔、撤销/重做、贴图、保存和复制。形状和效果可从右侧箭头打开菜单切换，左侧点阵用于拖动工具栏。鼠标悬停在按钮上会显示用途和快捷键，例如“保存 (Ctrl+S)”“复制 (Ctrl+C)”“取消截图 (Esc)”。
+工具栏提供矩形/圆形/方形/直线/箭头、画笔、文字、递增数字标注、马赛克/高斯模糊、橡皮擦、荧光笔、文字识别、撤销/重做、贴图、保存和复制。形状和效果可从右侧箭头打开菜单切换，左侧点阵用于拖动工具栏。鼠标悬停在按钮上会显示用途和快捷键，例如“保存 (Ctrl+S)”“复制 (Ctrl+C)”“取消截图 (Esc)”。
 
 ## 功能一览
 
@@ -79,8 +79,9 @@
 | **标注工具** | 画笔、矩形/圆形/方形、圈号递增数字标注、橡皮擦和半透明荧光笔 |
 | **隐私处理** | 局部马赛克与连续轨迹模糊，可调节模糊度 |
 | **原位文字** | 直接在画布输入，多行换行，支持 text-input-v3 输入法；字号、字体和颜色与导出同步 |
-| **工作流** | 实时预览、撤销/重做、保存 PNG、复制到剪贴板、Wayland 贴图；工具栏悬停显示用途和快捷键 |
-| **轻依赖** | Rust + SCTK + wl_shm + tiny-skia；不需要 grim、Slint、系统 OpenCV、slurp 或合成器的选区命令 |
+| **文字识别** | 选中区域点击 OCR，内置 PP-OCRv6 tiny 模型离线识别中英文，结果复制到剪贴板；模型与 ONNX Runtime 随包提供，不上传图片 |
+| **工作流** | 实时预览、撤销/重做、保存 PNG、复制到剪贴板、Wayland 贴图、OCR 复制文字；工具栏悬停显示用途和快捷键 |
+| **轻依赖** | 基础版本仍是 Rust + SCTK + wl_shm + tiny-skia；官方包额外内置约 6MB OCR 模型并动态加载 ONNX Runtime，不需要 grim、Slint、系统 OpenCV、slurp 或合成器的选区命令 |
 
 ## 快速开始
 
@@ -156,13 +157,15 @@ install -Dm755 target/release/babry ~/.local/bin/babry
 
 ### 2. 安装运行依赖
 
-截图由 Babry 直接通过 Wayland 协议完成：niri/Hyprland/MangoWM 等 wlroots 系合成器使用 `zwlr_screencopy`，KDE Plasma 6.8+ 调用 KWin 自带的 `org.kde.KWin.ScreenShot2`，都不需要 `grim`。复制图片需要 `wl-clipboard`；可选的 `notify-send` 用于状态通知。AUR 包已声明 Fontconfig、xkbcommon 和 Wayland 系统库依赖。
+截图由 Babry 直接通过 Wayland 协议完成：niri/Hyprland/MangoWM 等 wlroots 系合成器使用 `zwlr_screencopy`，KDE Plasma 6.8+ 调用 KWin 自带的 `org.kde.KWin.ScreenShot2`，都不需要 `grim`。复制图片需要 `wl-clipboard`；可选的 `notify-send` 用于状态通知。OCR 已内置在官方/Nix 包中：约 6 MB 的 PP-OCRv6 tiny 模型随包提供，ONNX Runtime 动态加载，不上传图片；自行编译时可用 `--features ocr` 启用。Wayland 下复制文字复用 `wl-copy`，X11 下需要额外的 `xclip`。AUR 包已声明 Fontconfig、xkbcommon 和 Wayland 系统库依赖。
 
 Arch Linux：
 
 ```bash
 yay -S wl-clipboard libnotify
 ```
+
+X11 会话复制 OCR 文字还需要安装 `xclip`。
 
 ### 3. 开始截图
 
@@ -280,7 +283,8 @@ niri 26.04 的 IPC 不返回平铺窗口的 `tile_pos_in_workspace_view`（只�
 - **移动标注**：不选工具时按住已有的图形、线条、文字、序号或笔迹拖动即可平移，空白处拖动仍移动选区；移动可撤销/重做。橡皮擦和马赛克/模糊不参与选择。
 - **旋转和缩放标注**：点中标注后出现选中框，拖四角以中心等比缩放（线宽不变，文字和序号字号随之缩放），拖顶部圆形手柄旋转，按住 `Shift` 吸附 15°；可撤销/重做，`Esc` 取消选中。
 - **长截图**：点击工具栏最右侧按钮开始，按钮变为停止。编辑器和工具栏保持在原处，选区外侧显示边框和进度，选区内的滚轮和键盘交给下方窗口，照常向下滚动页面；再次点击按钮停止。拼接结果放在原选区的位置和大小里，滚轮上下翻页，选区外仍是原截图的遮罩，可以继续用工具栏标注、保存、复制或贴图。吸顶标题栏和底部固定栏只保留一份；连续两帧对不上时会提示“滚动过快”，往回滚一点即可接上。只支持向下滚动，结果高度上限 40000 px。
-- **预留功能**：折线、录屏、OCR、翻译尚未实现，不显示在工具栏。
+- **文字识别**：选中区域后点击工具栏最右侧的 OCR 按钮，识别结果自动复制到剪贴板，顶部提示字符数；长截图进行中不可用。
+- **预留功能**：折线、录屏、翻译尚未实现，不显示在工具栏。
 - **文字**：选择 `字` 工具，在选区内点击即可原位输入。
 - **确认文字**：点击画布外、切换工具或按 `Ctrl+Enter`。
 - **取消文字**：`Esc` 放弃正在输入的文字；不在输入时，`Esc` 依次关闭菜单、取消当前绘制、取消选中工具，最后关闭截图。
@@ -401,6 +405,8 @@ layer-shell 主表面直接显示截图  导出时按 64 行条带合成标注
                      PNG 保存 / 剪贴板 / 贴图进程
 ```
 
+启用 `ocr` 特性时，另外按需裁剪当前选区，交给内置的 PP-OCRv6 tiny 模型识别；ONNX Runtime 动态加载，识别结果直接写入文字剪贴板，不产生临时图片，也不访问网络。
+
 指针移动只改变子表面的位置和视口尺寸，不重绘整帧，合成器也不重新上传整张截图。界面以输出的物理分辨率绘制，分数缩放下文字和图标保持清晰。标注历史只保存矢量命令；显示瓦片和导出使用同一套 tiny-skia 绘制，马赛克、模糊和橡皮擦按历史顺序作用于“原图 + 之前的标注”。
 
 ### 项目结构
@@ -419,6 +425,7 @@ src/
 ├── native_icons.rs     # 工具栏 SVG 图标几何
 ├── native_pin.rs       # layer-shell 贴图
 ├── native_ui.rs        # 工具栏、菜单、色盘的布局、命中测试与绘制
+├── ocr.rs              # 内置 PP-OCRv6 tiny 与选区裁剪
 ├── pixels.rs           # 普通内存 RGBA 像素
 ├── scene.rs            # 子表面场景、纯色平面与标注瓦片
 ├── screencopy.rs       # zwlr_screencopy 捕获到 memfd
@@ -428,6 +435,8 @@ src/
 ├── lib.rs              # 库模块导出
 └── main.rs             # 命令分发、截图会话与后台
 ```
+
+`models/ocr/` 存放内置的 PP-OCRv6 tiny 检测模型、识别模型和字典；模型来源与 Apache-2.0 许可见该目录的 `README.md`。
 
 ## 开发者
 
@@ -485,7 +494,8 @@ babry --debug-selection screenshot.png /tmp/babry-cv-debug
 - 编辑器和贴图需要合成器支持 `wp_viewporter`；niri、Hyprland、MangoWM 和 KWin 均支持。
 - 通用 wlroots 路径只做整屏 CV，没有窗口级种子；要获得窗口内控件级别的吸附，需要为合成器补充 IPC 适配。
 - 输入法预编辑依赖合成器转发 `text-input-v3`；不支持时仍可直接键入。
-- 跨显示器拖动 Pin、OCR、贴图持久化尚未实现；长截图暂不支持向上或横向滚动。
+- 跨显示器拖动 Pin、贴图持久化尚未实现；长截图暂不支持向上或横向滚动。
+- OCR 只识别当前选区；tiny 模型覆盖常用中英文，低置信度行会被丢弃，X11 下复制文字需要 `xclip`。
 - X11 下文字工具不支持输入法，没有窗口级智能选区。
 
 ## 参与贡献
