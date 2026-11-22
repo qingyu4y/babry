@@ -6,5 +6,9 @@
 # 相对路径以本配置文件所在目录为基准。
 save_dir = "~/Pictures/Babry"
 
+# 点击 OCR 识别文字后，是否自动关闭截图编辑窗口。
+# 默认 false：识别并复制文字后保留窗口，方便继续标注或手动保存。
+ocr_close_after = false
+
 # 优先级：--save-dir > BABRY_SAVE_DIR > 本配置 > XDG_PICTURES_DIR > ~/Pictures。
 # 后台模式每次由调用端重新读取配置，无需重启后台。

@@ -9,6 +9,11 @@ pub fn resolve_save_dir(cli_dir: Option<&Path>) -> Result<PathBuf, String> {
     SavePaths::from_env()?.resolve(cli_dir)
 }
 
+/// OCR 识别成功后是否自动关闭编辑窗口；默认保持打开。
+pub fn ocr_close_after() -> Result<bool, String> {
+    SavePaths::from_env()?.read_ocr_close_after()
+}
+
 struct SavePaths {
     home: Option<PathBuf>,
     config: Option<PathBuf>,
@@ -58,7 +63,7 @@ impl SavePaths {
         Ok(path)
     }
 
-    fn read_config(&self) -> Result<Option<(PathBuf, PathBuf)>, String> {
+    fn read_table(&self) -> Result<Option<(&Path, toml::Table)>, String> {
         let Some(path) = &self.config else {
             return Ok(None);
         };
@@ -70,6 +75,13 @@ impl SavePaths {
         let table: toml::Table = content
             .parse()
             .map_err(|error| format!("解析配置失败 {}: {error}", path.display()))?;
+        Ok(Some((path, table)))
+    }
+
+    fn read_config(&self) -> Result<Option<(PathBuf, PathBuf)>, String> {
+        let Some((path, table)) = self.read_table()? else {
+            return Ok(None);
+        };
         let Some(value) = table.get("save_dir") else {
             return Ok(None);
         };
@@ -83,6 +95,20 @@ impl SavePaths {
                 .expect("config file has a directory")
                 .to_path_buf(),
         )))
+    }
+
+    fn read_ocr_close_after(&self) -> Result<bool, String> {
+        let Some((path, table)) = self.read_table()? else {
+            return Ok(false);
+        };
+        match table.get("ocr_close_after") {
+            None => Ok(false),
+            Some(toml::Value::Boolean(value)) => Ok(*value),
+            Some(_) => Err(format!(
+                "配置 {} 的 ocr_close_after 必须是 true 或 false",
+                path.display()
+            )),
+        }
     }
 }
 
@@ -241,5 +267,21 @@ mod tests {
         assert!(directory.is_dir());
         assert_eq!(output.parent(), Some(directory.as_path()));
         assert_eq!(output.extension().unwrap(), "png");
+    }
+
+    #[test]
+    fn ocr_close_after_defaults_false_and_requires_a_boolean() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = paths(root.path());
+        assert!(!paths.read_ocr_close_after().unwrap());
+
+        let config = paths.config.as_ref().unwrap();
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        fs::write(config, "ocr_close_after = true\n").unwrap();
+        assert!(paths.read_ocr_close_after().unwrap());
+        fs::write(config, "ocr_close_after = false\n").unwrap();
+        assert!(!paths.read_ocr_close_after().unwrap());
+        fs::write(config, "ocr_close_after = 'yes'\n").unwrap();
+        assert!(paths.read_ocr_close_after().is_err());
     }
 }

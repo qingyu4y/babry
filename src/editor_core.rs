@@ -1048,6 +1048,11 @@ impl Core {
                         Ok(text) => {
                             self.ui.notice =
                                 Some(format!("已复制 {} 个字符", text.chars().count()));
+                            match config::ocr_close_after() {
+                                Ok(true) => self.exit = true,
+                                Ok(false) => {}
+                                Err(error) => self.ui.error = Some(error),
+                            }
                         }
                         Err(error) => self.ui.error = Some(error),
                     }
