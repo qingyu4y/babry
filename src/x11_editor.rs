@@ -8,7 +8,7 @@ use babry::{
     compositor::OutputInfo,
     core::RectPx,
     editor_core::{Core, CoreInit, Cursor, LongshotRequest},
-    native_ui::{self, SHADOW_MARGIN},
+    native_ui,
     shm_image::ShmImage,
     smart_select,
     soft_render::{self, SoftCache},
@@ -631,10 +631,10 @@ impl Editor {
         );
         let rects: Vec<RectPx> = [
             (
-                toolbar.x - SHADOW_MARGIN,
-                toolbar.y - SHADOW_MARGIN,
-                toolbar.width + SHADOW_MARGIN * 2.0,
-                toolbar.height + SHADOW_MARGIN * 2.0,
+                toolbar.x - native_ui::TOOLTIP_MARGIN,
+                toolbar.y - native_ui::TOOLTIP_MARGIN,
+                toolbar.width + native_ui::TOOLTIP_MARGIN * 2.0,
+                toolbar.height + native_ui::TOOLTIP_MARGIN * 2.0,
             ),
             (label.x, label.y, label_width, label.height),
         ]

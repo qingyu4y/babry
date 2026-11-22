@@ -716,7 +716,7 @@ impl Scene {
 
         if ui.editing {
             let b = ui.toolbar(self.logical, s);
-            let rect = self.panel_rect(b, native_ui::SHADOW_MARGIN);
+            let rect = self.panel_rect(b, native_ui::TOOLTIP_MARGIN);
             let key = ToolbarKey::new(ui, self.logical, s, (rect.2, rect.3));
             if self.toolbar_key.as_ref() == Some(&key) {
                 changed |= self.toolbar.plane.move_to(rect.0, rect.1);

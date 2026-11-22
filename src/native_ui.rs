@@ -361,6 +361,61 @@ impl EditorUi {
         }
         controls
     }
+    /// 悬停控件的提示文字；没有提示的控件返回 `None`。
+    pub fn tooltip(&self, action: Action) -> Option<&'static str> {
+        match action {
+            Action::Grip => Some("拖动工具栏"),
+            Action::Tool(2) => Some(match self.shape {
+                14 => "圆形",
+                13 => "方形",
+                4 => "直线",
+                5 => "箭头",
+                _ => "矩形",
+            }),
+            Action::Tool(1) => Some("画笔"),
+            Action::Tool(10) => Some("文字"),
+            Action::Tool(11) => Some("序号标记"),
+            Action::Tool(8) => Some(if self.effect == 1 {
+                "高斯模糊"
+            } else {
+                "马赛克"
+            }),
+            Action::Tool(12) => Some("橡皮擦"),
+            Action::Tool(7) => Some("荧光笔"),
+            Action::Undo => Some("撤销 (Ctrl+Z)"),
+            Action::Redo => Some("重做 (Ctrl+Shift+Z)"),
+            Action::Pin => Some("贴图"),
+            Action::Save => Some("保存 (Ctrl+S)"),
+            Action::Cancel => Some("取消截图 (Esc)"),
+            Action::Copy => Some("复制 (Ctrl+C)"),
+            Action::Longshot => Some(if self.longshot {
+                "停止长截图"
+            } else {
+                "长截图"
+            }),
+            Action::Open(Menu::Shapes) => Some("切换形状"),
+            Action::Open(Menu::Effects) => Some("切换马赛克/模糊"),
+            Action::Open(Menu::Colors) => Some("更多颜色"),
+            Action::Width => Some(if matches!(self.tool, 10 | 11) {
+                "调整字号"
+            } else {
+                "调整粗细"
+            }),
+            Action::Number => Some(if matches!(self.tool, 10 | 11) {
+                "输入字号"
+            } else {
+                "输入粗细"
+            }),
+            Action::Strength => Some("调整模糊度"),
+            Action::StrengthNumber => Some("输入模糊度"),
+            Action::Tool(_)
+            | Action::Shape(_)
+            | Action::Effect(_)
+            | Action::Color(_)
+            | Action::Blank
+            | Action::Dismiss => None,
+        }
+    }
     pub fn slider(&mut self, screen: (u32, u32), selection: BoxF, p: (f64, f64), strength: bool) {
         let b = self.toolbar(screen, selection);
         let (x, w, min, max) = if strength {
@@ -695,6 +750,8 @@ fn snap(value: f32, grid: f32) -> f32 {
 
 /// 阴影超出控件边界的逻辑像素数；平面需包含这部分透明边距。
 pub const SHADOW_MARGIN: f32 = 12.0;
+/// 工具栏提示浮层超出工具栏的逻辑像素数；工具栏平面需包含这部分透明边距。
+pub const TOOLTIP_MARGIN: f32 = 44.0;
 
 /// 选区尺寸标签的位置。
 pub fn label_box(s: BoxF, grid: f32) -> BoxF {
@@ -876,7 +933,8 @@ pub fn draw_toolbar(
     let b = ui.toolbar(logical, s);
     p.panel(b, 13.0);
     let hovered = ui.hit(logical, s, ui.pointer);
-    for (control, action) in ui.controls(b) {
+    let controls = ui.controls(b);
+    for &(control, action) in &controls {
         if matches!(
             action,
             Action::Tool(_)
@@ -1129,7 +1187,43 @@ pub fn draw_toolbar(
             );
         }
     }
+    if let Some(action) = hovered
+        && let Some(label) = ui.tooltip(action)
+        && let Some(&(control, _)) = controls.iter().find(|(_, item)| *item == action)
+    {
+        draw_tooltip(&mut p, fonts, logical, b, control, label);
+    }
     Ok(())
+}
+
+/// 在工具栏控件上方（空间不足时下方）绘制提示。
+fn draw_tooltip(
+    p: &mut Painter<'_>,
+    fonts: &mut Fonts,
+    screen: (u32, u32),
+    toolbar: BoxF,
+    control: BoxF,
+    text: &str,
+) {
+    let height = 24.0;
+    let width =
+        (fonts.measure(text, 12.0, f32::INFINITY).0 + 16.0).min((screen.0 as f32 - 8.0).max(1.0));
+    let x = (control.x + control.width / 2.0 - width / 2.0)
+        .clamp(4.0, (screen.0 as f32 - width - 4.0).max(4.0));
+    let y = if toolbar.y >= height + 6.0 {
+        toolbar.y - height - 6.0
+    } else {
+        toolbar.y + toolbar.height + 6.0
+    };
+    let b = BoxF {
+        x,
+        y,
+        width,
+        height,
+    };
+    p.rect(b, 6.0, [20, 26, 36, 248]);
+    p.border(b.inset(0.5), 6.0, [255, 255, 255, 50], 1.0);
+    p.text(fonts, text, x + 8.0, y + 4.0, 12.0, WHITE);
 }
 
 /// 绘制当前打开的下拉菜单（含阴影）。
@@ -1357,5 +1451,43 @@ mod shape_menu_tests {
         assert_eq!(pick(0), Some(Action::Shape(2)));
         assert_eq!(pick(3), Some(Action::Shape(4)));
         assert_eq!(pick(4), Some(Action::Shape(5)));
+    }
+
+    #[test]
+    fn hovering_toolbar_buttons_yields_their_tooltip() {
+        let screen = (2048, 1152);
+        let selection = BoxF {
+            x: 0.0,
+            y: 0.0,
+            width: 2048.0,
+            height: 1152.0,
+        };
+        let hover = |action: Action| {
+            let ui = EditorUi {
+                editing: true,
+                ..Default::default()
+            };
+            let control = ui
+                .controls(ui.toolbar(screen, selection))
+                .into_iter()
+                .find(|(_, item)| *item == action)
+                .map(|(bounds, _)| {
+                    (
+                        bounds.x + bounds.width / 2.0,
+                        bounds.y + bounds.height / 2.0,
+                    )
+                })
+                .unwrap();
+            let hit = ui.hit(
+                screen,
+                selection,
+                (f64::from(control.0), f64::from(control.1)),
+            );
+            ui.tooltip(hit.unwrap())
+        };
+        assert_eq!(hover(Action::Save), Some("保存 (Ctrl+S)"));
+        assert_eq!(hover(Action::Copy), Some("复制 (Ctrl+C)"));
+        assert_eq!(hover(Action::Cancel), Some("取消截图 (Esc)"));
+        assert_eq!(EditorUi::default().tooltip(Action::Blank), None);
     }
 }
