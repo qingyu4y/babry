@@ -176,7 +176,7 @@ impl EditorUi {
         }
     }
     pub fn toolbar(&self, screen: (u32, u32), selection: BoxF) -> BoxF {
-        let width = 672.0_f32.min((screen.0 as f32 - 16.0).max(1.0));
+        let width = 678.0_f32.min((screen.0 as f32 - 16.0).max(1.0));
         let height = if self.tool == 0 {
             50.0
         } else if self.tool == 8 && self.effect == 1 {
@@ -460,12 +460,12 @@ const BUTTONS: &[(f32, Action, &str)] = &[
     (295.0, Action::Undo, "undo"),
     (331.0, Action::Redo, "redo"),
     (378.0, Action::Pin, "pin"),
-    (414.0, Action::Save, "save"),
-    (450.0, Action::Cancel, "cancle"),
-    (486.0, Action::Copy, "copy"),
-    (522.0, Action::Longshot, "longshot"),
-    (558.0, Action::Ocr, "ocr"),
-    (594.0, Action::Translate, "translate"),
+    (414.0, Action::Longshot, "longshot"),
+    (450.0, Action::Translate, "translate"),
+    (486.0, Action::Ocr, "ocr"),
+    (522.0, Action::Save, "save"),
+    (558.0, Action::Copy, "copy"),
+    (600.0, Action::Cancel, "cancle"),
 ];
 fn swatch_box(b: BoxF, index: usize) -> BoxF {
     let (x, y, w, h) = if index < 20 {
@@ -1141,7 +1141,7 @@ pub fn draw_toolbar(
             INK,
         );
     }
-    for x in [324.0, 407.0] {
+    for x in [324.0, 407.0, 632.0] {
         p.line(
             (b.x + x, b.y + 14.0),
             (b.x + x, b.y + 36.0),
@@ -1608,6 +1608,27 @@ mod shape_menu_tests {
         assert_eq!(hover(Action::Ocr), Some("识别文字 (OCR)"));
         assert_eq!(hover(Action::Translate), Some("翻译选中文字 (AI)"));
         assert_eq!(EditorUi::default().tooltip(Action::Blank), None);
+    }
+
+    #[test]
+    fn toolbar_actions_after_pin_follow_the_requested_order() {
+        let actions: Vec<Action> = BUTTONS.iter().map(|(_, action, _)| *action).collect();
+        let pin = actions
+            .iter()
+            .position(|action| *action == Action::Pin)
+            .unwrap();
+        assert_eq!(
+            &actions[pin..],
+            [
+                Action::Pin,
+                Action::Longshot,
+                Action::Translate,
+                Action::Ocr,
+                Action::Save,
+                Action::Copy,
+                Action::Cancel,
+            ]
+        );
     }
 
     #[test]
