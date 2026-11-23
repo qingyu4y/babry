@@ -39,7 +39,7 @@
             wrapProgram $out/bin/babry \
               --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.systemd ]} \
               --set ORT_DYLIB_PATH ${pkgs.onnxruntime}/lib/libonnxruntime.so \
-              --prefix PATH : ${lib.makeBinPath [ pkgs.fontconfig ]}
+              --prefix PATH : ${lib.makeBinPath [ pkgs.curl pkgs.fontconfig ]}
           '';
 
           meta = {
@@ -120,6 +120,7 @@
             packages = with pkgs; [
               cargo
               clippy
+              curl
               fontconfig
               libxcb
               libxkbcommon

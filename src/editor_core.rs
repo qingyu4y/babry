@@ -123,6 +123,8 @@ pub struct Core {
     pub selection: RectPx,
     pub candidates: Vec<smart_select::Candidate>,
     pub candidates_pending: Option<Receiver<Vec<smart_select::Candidate>>>,
+    /// 后台 OCR + 翻译请求；结果由 `poll_translate` 取走。
+    pub translate_pending: Option<Receiver<Result<String, String>>>,
     /// 用户尚未悬停或拖动时，候选到达后可用吸附后的窗口种子替换初始选区。
     pub hovered: bool,
     pub hover: smart_select::Cursor,
@@ -179,6 +181,7 @@ impl Core {
             selection: init.selection,
             candidates: Vec::new(),
             candidates_pending: init.candidates,
+            translate_pending: None,
             hovered: false,
             hover: smart_select::Cursor::default(),
             ui: native_ui::EditorUi {
@@ -967,6 +970,11 @@ impl Core {
 
     pub fn set_ui_from_action(&mut self, action: Action) {
         let tool_before = self.ui.tool;
+        if !matches!(action, Action::Translate) && self.ui.translation.is_some() {
+            self.ui.translation = None;
+            self.ui.translation_pending = false;
+            self.translate_pending = None;
+        }
         if matches!(action, Action::Tool(_)) {
             // 选用工具后不再显示选中框。
             self.pick(None);
@@ -1063,6 +1071,34 @@ impl Core {
                 }
                 self.dirty = true;
             }
+            Action::Translate => {
+                self.ui.menu = None;
+                self.ui.error = None;
+                self.ui.notice = None;
+                if self.canvas {
+                    self.ui.notice = Some("长截图时不能翻译".into());
+                } else {
+                    #[cfg(feature = "ocr")]
+                    {
+                        let source = self.source.clone();
+                        let selection = self.selection;
+                        let (sender, receiver) = std::sync::mpsc::channel();
+                        self.translate_pending = Some(receiver);
+                        self.ui.translation = Some(String::new());
+                        self.ui.translation_pending = true;
+                        std::thread::spawn(move || {
+                            let result = crate::ocr::recognize(&source, selection)
+                                .and_then(|text| crate::translate::translate(&text));
+                            let _ = sender.send(result);
+                        });
+                    }
+                    #[cfg(not(feature = "ocr"))]
+                    {
+                        self.ui.notice = Some("此版本未编译 OCR 支持".into());
+                    }
+                }
+                self.dirty = true;
+            }
             Action::Dismiss | Action::Blank => self.ui.menu = None,
             Action::Grip
             | Action::Width
@@ -1091,6 +1127,9 @@ impl Core {
     pub fn cursor_for(&self, position: (f64, f64)) -> Cursor {
         if !self.ui.editing {
             return Cursor::Crosshair;
+        }
+        if self.ui.translation.is_some() {
+            return Cursor::Default;
         }
         if let Some(PointerDrag::Move { .. } | PointerDrag::MoveMark { .. }) = self.pointer_drag {
             return Cursor::Grabbing;
@@ -1169,6 +1208,36 @@ impl Core {
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => self.candidates_pending = None,
+        }
+    }
+
+    /// 非阻塞地接收后台 OCR + 翻译结果。
+    pub fn poll_translate(&mut self) {
+        let Some(receiver) = &self.translate_pending else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(Ok(text)) => {
+                self.ui.translation = Some(text);
+                self.ui.translation_pending = false;
+                self.translate_pending = None;
+                self.dirty = true;
+            }
+            Ok(Err(error)) => {
+                self.ui.translation = None;
+                self.ui.translation_pending = false;
+                self.translate_pending = None;
+                self.ui.error = Some(error);
+                self.dirty = true;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                self.translate_pending = None;
+                self.ui.translation = None;
+                self.ui.translation_pending = false;
+                self.ui.error = Some("翻译线程意外退出".into());
+                self.dirty = true;
+            }
         }
     }
 
@@ -1402,7 +1471,11 @@ impl Core {
         }
         match key {
             Keysym::Escape => {
-                if self.ui.menu.is_some() {
+                if self.ui.translation.is_some() {
+                    self.ui.translation = None;
+                    self.ui.translation_pending = false;
+                    self.translate_pending = None;
+                } else if self.ui.menu.is_some() {
                     self.ui.menu = None;
                 } else if self.picked.is_some() && self.ui.tool == 0 {
                     self.pick(None);

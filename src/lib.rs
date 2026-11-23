@@ -18,4 +18,5 @@ pub mod shm_image;
 pub mod smart_select;
 pub mod soft_render;
 pub mod stitch;
+pub mod translate;
 pub mod x11;

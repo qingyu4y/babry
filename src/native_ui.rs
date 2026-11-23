@@ -3,8 +3,8 @@ use crate::{core::RectPx, font::Fonts};
 use std::sync::OnceLock;
 use svgtypes::{SimplePathSegment, SimplifyingPathParser};
 use tiny_skia::{
-    Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, Path, PathBuilder,
-    PixmapMut, Point, SpreadMode, Stroke, Transform,
+    Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Mask, Paint, Path,
+    PathBuilder, PixmapMut, Point, SpreadMode, Stroke, Transform,
 };
 
 #[path = "native_icons.rs"]
@@ -94,6 +94,8 @@ pub enum Action {
     Copy,
     /// 识别当前选区中的文字并复制。
     Ocr,
+    /// 识别当前选区文字并翻译后覆盖显示。
+    Translate,
     /// 以当前选区开始滚动长截图。
     Longshot,
     Grip,
@@ -123,6 +125,10 @@ pub struct EditorUi {
     pub error: Option<String>,
     /// 短暂的操作结果提示（例如 OCR 已复制）。
     pub notice: Option<String>,
+    /// 覆盖在选区上的翻译结果；`Some("")` 表示正在翻译。
+    pub translation: Option<String>,
+    /// 翻译请求进行中。
+    pub translation_pending: bool,
     /// 长截图进行中：长截图按钮高亮并显示为“停止”。
     pub longshot: bool,
     /// 控件对齐的逻辑网格步长；使控件边缘落在整数物理像素上。
@@ -147,6 +153,8 @@ impl Default for EditorUi {
             number_input: None,
             error: None,
             notice: None,
+            translation: None,
+            translation_pending: false,
             longshot: false,
             grid: 1.0,
         }
@@ -168,7 +176,7 @@ impl EditorUi {
         }
     }
     pub fn toolbar(&self, screen: (u32, u32), selection: BoxF) -> BoxF {
-        let width = 636.0_f32.min((screen.0 as f32 - 16.0).max(1.0));
+        let width = 672.0_f32.min((screen.0 as f32 - 16.0).max(1.0));
         let height = if self.tool == 0 {
             50.0
         } else if self.tool == 8 && self.effect == 1 {
@@ -254,7 +262,8 @@ impl EditorUi {
         }
         let b = self.toolbar(screen, selection);
         if !b.contains(p) {
-            return None;
+            // 翻译蒙版挡住了整个选区：点击任意非工具栏位置只关闭蒙版。
+            return self.translation.is_some().then_some(Action::Dismiss);
         }
         for (bounds, action) in self.controls(b) {
             if bounds.contains(p) {
@@ -394,6 +403,7 @@ impl EditorUi {
             Action::Cancel => Some("取消截图 (Esc)"),
             Action::Copy => Some("复制 (Ctrl+C)"),
             Action::Ocr => Some("识别文字 (OCR)"),
+            Action::Translate => Some("翻译选中文字 (AI)"),
             Action::Longshot => Some(if self.longshot {
                 "停止长截图"
             } else {
@@ -455,6 +465,7 @@ const BUTTONS: &[(f32, Action, &str)] = &[
     (486.0, Action::Copy, "copy"),
     (522.0, Action::Longshot, "longshot"),
     (558.0, Action::Ocr, "ocr"),
+    (594.0, Action::Translate, "translate"),
 ];
 fn swatch_box(b: BoxF, index: usize) -> BoxF {
     let (x, y, w, h) = if index < 20 {
@@ -669,6 +680,32 @@ impl Painter<'_> {
         let p = paint(color);
         fonts.text(value, x, y, size, 1000.0, |path| self.fill(path, &p));
     }
+    /// 自动换行并裁剪到 `clip`，避免长译文画出蒙版。
+    #[allow(clippy::too_many_arguments)]
+    fn text_clipped(
+        &mut self,
+        fonts: &mut Fonts,
+        value: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        wrap: f32,
+        color: ColorValue,
+        clip: BoxF,
+    ) {
+        let Some(path) = rounded(clip, 0.0) else {
+            return;
+        };
+        let Some(mut mask) = Mask::new(self.pm.width(), self.pm.height()) else {
+            return;
+        };
+        mask.fill_path(&path, FillRule::Winding, true, self.transform);
+        let paint = paint(color);
+        fonts.text(value, x, y, size, wrap, |path| {
+            self.pm
+                .fill_path(path, &paint, FillRule::Winding, self.transform, Some(&mask));
+        });
+    }
     fn icon(&mut self, name: &str, b: BoxF, color: ColorValue) {
         static ICONS: OnceLock<Vec<Icon>> = OnceLock::new();
         let Some(icon) = ICONS
@@ -797,6 +834,57 @@ pub fn draw_notice(
     let mut p = painter(bytes, size, transform)?;
     p.rect(b, 9.0, [28, 36, 48, 248]);
     p.text(fonts, notice, b.x + 12.0, b.y + 12.0, 13.0, WHITE);
+    Ok(())
+}
+
+/// 翻译结果框可占用的最大区域；实际高度随文字收缩并居中。
+pub fn translation_box(s: BoxF, screen: (u32, u32)) -> BoxF {
+    let width = s.width.min(640.0).min((screen.0 as f32 - 16.0).max(1.0));
+    let height = s.height.min(400.0).min((screen.1 as f32 - 16.0).max(1.0));
+    BoxF {
+        x: (s.x + (s.width - width) / 2.0).clamp(0.0, (screen.0 as f32 - width).max(0.0)),
+        y: (s.y + (s.height - height) / 2.0).clamp(0.0, (screen.1 as f32 - height).max(0.0)),
+        width,
+        height,
+    }
+}
+
+/// 在翻译蒙版上绘制结果框；文字超出时自动换行并裁剪。
+pub fn draw_translation(
+    bytes: &mut [u8],
+    size: (u32, u32),
+    transform: Transform,
+    area: BoxF,
+    text: &str,
+    pending: bool,
+    fonts: &mut Fonts,
+) -> Result<(), String> {
+    let label = if pending { "正在翻译…" } else { text };
+    if label.trim().is_empty() {
+        return Ok(());
+    }
+    let wrap = (area.width - 32.0).max(1.0);
+    let text_height = fonts.measure(label, 15.0, wrap).1;
+    let height = (text_height + 28.0).min(area.height);
+    let b = BoxF {
+        x: area.x,
+        y: area.y + (area.height - height) / 2.0,
+        width: area.width,
+        height,
+    };
+    let mut p = painter(bytes, size, transform)?;
+    p.rect(b, 10.0, [18, 25, 37, 238]);
+    p.border(b.inset(0.5), 10.0, [255, 255, 255, 46], 1.0);
+    p.text_clipped(
+        fonts,
+        label,
+        b.x + 16.0,
+        b.y + 12.0,
+        15.0,
+        wrap,
+        WHITE,
+        b.inset(10.0),
+    );
     Ok(())
 }
 
@@ -973,6 +1061,7 @@ pub fn draw_toolbar(
                 | Action::Cancel
                 | Action::Copy
                 | Action::Ocr
+                | Action::Translate
                 | Action::Longshot
                 | Action::Grip
         ) {
@@ -1517,6 +1606,27 @@ mod shape_menu_tests {
         assert_eq!(hover(Action::Copy), Some("复制 (Ctrl+C)"));
         assert_eq!(hover(Action::Cancel), Some("取消截图 (Esc)"));
         assert_eq!(hover(Action::Ocr), Some("识别文字 (OCR)"));
+        assert_eq!(hover(Action::Translate), Some("翻译选中文字 (AI)"));
         assert_eq!(EditorUi::default().tooltip(Action::Blank), None);
+    }
+
+    #[test]
+    fn clicking_outside_toolbar_dismisses_translation_overlay() {
+        let screen = (2048, 1152);
+        let selection = BoxF {
+            x: 0.0,
+            y: 0.0,
+            width: 2048.0,
+            height: 1152.0,
+        };
+        let ui = EditorUi {
+            editing: true,
+            translation: Some("译文".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            ui.hit(screen, selection, (10.0, 10.0)),
+            Some(Action::Dismiss)
+        );
     }
 }

@@ -269,8 +269,8 @@ impl NativeEditor {
             _output: output,
         };
         while !editor.core.exit {
-            if editor.capture.is_some() {
-                // 长截图期间定时醒来，刷新进度文字。
+            if editor.capture.is_some() || editor.core.translate_pending.is_some() {
+                // 长截图或后台翻译期间定时醒来，刷新进度和结果。
                 let deadline = Instant::now() + Duration::from_millis(100);
                 screencopy::dispatch_until(&mut queue, &mut editor, deadline)
                     .map_err(|error| format!("Wayland 事件循环失败: {error}"))?;
@@ -289,6 +289,7 @@ impl NativeEditor {
 impl NativeEditor {
     fn draw(&mut self, qh: &QueueHandle<Self>) -> Result<(), String> {
         self.core.poll_candidates();
+        self.core.poll_translate();
         if !self.configured || self.core.exit || !self.core.dirty {
             return Ok(());
         }

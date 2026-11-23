@@ -14,6 +14,21 @@ pub fn ocr_close_after() -> Result<bool, String> {
     SavePaths::from_env()?.read_ocr_close_after()
 }
 
+/// OpenAI 兼容翻译接口的配置。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TranslateConfig {
+    pub url: String,
+    pub api_key: String,
+    pub model: String,
+    pub from: String,
+    pub to: String,
+}
+
+/// 读取 `[translate]` 配置；没有配置时报错，因为翻译必须显式提供 API。
+pub fn translate_config() -> Result<TranslateConfig, String> {
+    SavePaths::from_env()?.read_translate()
+}
+
 struct SavePaths {
     home: Option<PathBuf>,
     config: Option<PathBuf>,
@@ -109,6 +124,46 @@ impl SavePaths {
                 path.display()
             )),
         }
+    }
+
+    fn read_translate(&self) -> Result<TranslateConfig, String> {
+        let Some((path, table)) = self.read_table()? else {
+            return Err("未找到配置文件，翻译需要设置 [translate] api_key".into());
+        };
+        let Some(toml::Value::Table(translate)) = table.get("translate") else {
+            return Err(format!(
+                "配置 {} 缺少 [translate] 段，翻译需要设置 api_key",
+                path.display()
+            ));
+        };
+        let string = |key: &str, default: Option<&str>| -> Result<String, String> {
+            match translate.get(key) {
+                None => default
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("配置 {} 的 [translate] 缺少 {key}", path.display())),
+                Some(toml::Value::String(value)) if !value.trim().is_empty() => {
+                    Ok(value.trim().to_owned())
+                }
+                Some(_) => Err(format!(
+                    "配置 {} 的 [translate] {key} 必须是非空字符串",
+                    path.display()
+                )),
+            }
+        };
+        let url = string("base_url", Some("https://api.openai.com/v1"))?;
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(format!(
+                "配置 {} 的 [translate] base_url 必须以 http:// 或 https:// 开头",
+                path.display()
+            ));
+        }
+        Ok(TranslateConfig {
+            url,
+            api_key: string("api_key", None)?,
+            model: string("model", Some("gpt-4o-mini"))?,
+            from: string("from", Some("English"))?,
+            to: string("to", Some("Simplified Chinese"))?,
+        })
     }
 }
 
@@ -283,5 +338,54 @@ mod tests {
         assert!(!paths.read_ocr_close_after().unwrap());
         fs::write(config, "ocr_close_after = 'yes'\n").unwrap();
         assert!(paths.read_ocr_close_after().is_err());
+    }
+
+    #[test]
+    fn translate_defaults_and_overrides() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = paths(root.path());
+        assert!(paths.read_translate().is_err());
+
+        let file = paths.config.as_ref().unwrap();
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "[translate]\napi_key = 'sk-test'\n").unwrap();
+        let translate = paths.read_translate().unwrap();
+        assert_eq!(translate.url, "https://api.openai.com/v1");
+        assert_eq!(translate.api_key, "sk-test");
+        assert_eq!(translate.model, "gpt-4o-mini");
+        assert_eq!(translate.from, "English");
+        assert_eq!(translate.to, "Simplified Chinese");
+
+        fs::write(
+            file,
+            "[translate]\nbase_url = 'http://localhost:8080/v1'\napi_key = 'k'\nmodel = 'm'\nfrom = 'Japanese'\nto = 'Chinese'\n",
+        )
+        .unwrap();
+        let translate = paths.read_translate().unwrap();
+        assert_eq!(translate.url, "http://localhost:8080/v1");
+        assert_eq!(translate.model, "m");
+        assert_eq!(translate.from, "Japanese");
+        assert_eq!(translate.to, "Chinese");
+    }
+
+    #[test]
+    fn translate_rejects_missing_or_invalid_values() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = paths(root.path());
+        let config = paths.config.as_ref().unwrap();
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        for content in [
+            "[translate]\napi_key = ''\n",
+            "[translate]\napi_key = 42\n",
+            "[translate]\napi_key = 'k'\nbase_url = 'api.example.com'\n",
+            "[translate]\napi_key = 'k'\nto = ''\n",
+            "translate = 'no'\n",
+        ] {
+            fs::write(config, content).unwrap();
+            assert!(
+                paths.read_translate().is_err(),
+                "accepted invalid config: {content}"
+            );
+        }
     }
 }

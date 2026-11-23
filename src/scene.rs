@@ -340,16 +340,20 @@ pub struct Scene {
     border_buffer: WlBuffer,
     caret_buffer: WlBuffer,
     panel_pool: SlotPool,
+    translation_pool: SlotPool,
     handle_sprites: Vec<(Buffer, (i32, i32))>,
     masks: Vec<Plane>,
     borders: Vec<Plane>,
     handles: Vec<Plane>,
+    translation_mask: Plane,
+    translation: Panel,
     label: Panel,
     toolbar: Panel,
     menu: Panel,
     caret: Plane,
     error: Panel,
     notice: Panel,
+    translation_key: Option<(String, IRect, bool)>,
     tiles: Tiles,
     label_key: Option<(String, IRect)>,
     toolbar_key: Option<ToolbarKey>,
@@ -479,6 +483,9 @@ impl Scene {
 
         let mut panel_pool = SlotPool::new(512 * 1024, shm)
             .map_err(|error| format!("无法创建界面共享内存: {error}"))?;
+        // 翻译框最大 640×400 逻辑像素，按最高 3 倍缩放预留。
+        let translation_pool = SlotPool::new(16 * 1024 * 1024, shm)
+            .map_err(|error| format!("无法创建翻译共享内存: {error}"))?;
         let mut handle_sprites = Vec::new();
         for (w, h) in [(8, 8), (10, 8), (8, 10)] {
             let size = (
@@ -524,6 +531,8 @@ impl Scene {
         let masks = (0..4).map(|_| plane()).collect::<Result<Vec<_>, _>>()?;
         let borders = (0..4).map(|_| plane()).collect::<Result<Vec<_>, _>>()?;
         let handles = (0..8).map(|_| plane()).collect::<Result<Vec<_>, _>>()?;
+        let translation_mask = plane()?;
+        let translation = panel()?;
         let label = panel()?;
         let toolbar = panel()?;
         let menu = panel()?;
@@ -547,16 +556,20 @@ impl Scene {
             border_buffer,
             caret_buffer,
             panel_pool,
+            translation_pool,
             handle_sprites,
             masks,
             borders,
             handles,
+            translation_mask,
+            translation,
             label,
             toolbar,
             menu,
             caret,
             error,
             notice,
+            translation_key: None,
             tiles,
             label_key: None,
             toolbar_key: None,
@@ -575,6 +588,8 @@ impl Scene {
             .chain(self.borders)
             .chain(self.handles)
             .chain([
+                self.translation_mask,
+                self.translation.plane,
                 self.label.plane,
                 self.toolbar.plane,
                 self.menu.plane,
@@ -688,6 +703,44 @@ impl Scene {
         let mut changed = self.place_selection(s);
         let mut complete = true;
         let scale = self.scale;
+
+        if let Some(text) = &ui.translation {
+            changed |= self
+                .translation_mask
+                .show_solid(&self.mask_buffer, self.panel_rect(s, 0.0));
+            let area = native_ui::translation_box(s, self.logical);
+            let rect = self.panel_rect(area, 0.0);
+            let key = (text.clone(), rect, ui.translation_pending);
+            if self.translation_key.as_ref() != Some(&key) {
+                let size = self.physical_size(rect);
+                let transform = native_ui::plane_transform((rect.0 as f32, rect.1 as f32), scale);
+                if self.translation.render(
+                    &mut self.translation_pool,
+                    rect,
+                    size,
+                    |bytes, size| {
+                        native_ui::draw_translation(
+                            bytes,
+                            size,
+                            transform,
+                            area,
+                            text,
+                            ui.translation_pending,
+                            fonts,
+                        )
+                    },
+                )? {
+                    self.translation_key = Some(key);
+                    changed = true;
+                } else {
+                    complete = false;
+                }
+            }
+        } else {
+            changed |= self.translation_mask.hide();
+            changed |= self.translation.hide();
+            self.translation_key = None;
+        }
 
         if ui.editing {
             changed |= self.label.hide();

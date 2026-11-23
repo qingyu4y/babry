@@ -436,6 +436,7 @@ impl Editor {
                 self.event(event);
             }
             self.core.poll_candidates();
+            self.core.poll_translate();
             self.poll_longshot();
             if self.core.exit {
                 break;

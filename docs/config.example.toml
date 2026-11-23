@@ -12,3 +12,16 @@ ocr_close_after = false
 
 # 优先级：--save-dir > BABRY_SAVE_DIR > 本配置 > XDG_PICTURES_DIR > ~/Pictures。
 # 后台模式每次由调用端重新读取配置，无需重启后台。
+
+# AI 翻译（OpenAI 兼容的 /chat/completions 接口）。
+# 点击工具栏的翻译按钮后，先 OCR 当前选区，再把文字发送到这里的服务；
+# 图片本身不会上传。译文覆盖显示在选区上，点击选区外或按 Esc 关闭。
+[translate]
+# 接口根地址；也可以直接写完整的 /chat/completions 地址。
+base_url = "https://api.openai.com/v1"
+# 必填。建议把配置文件权限设为 600：chmod 600 ~/.config/babry/config.toml
+api_key = "sk-..."
+model = "gpt-4o-mini"
+# 源语言和目标语言，按自然语言填写。
+from = "English"
+to = "Simplified Chinese"

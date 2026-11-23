@@ -160,6 +160,9 @@ pub fn render(
         ] {
             fill(&mut target, rect, BORDER);
         }
+        if core.ui.translation.is_some() {
+            fill(&mut target, (l, t, r - l, b - t), MASK);
+        }
         // 长图画布的窗口不能拉伸，不显示手柄。
         if !core.canvas {
             for handle in native_ui::handle_boxes(s) {
@@ -190,6 +193,18 @@ pub fn render(
         let text = format!("{} × {}", core.selection.width, core.selection.height);
         native_ui::draw_label(frame, size, transform, b, &text, fonts)?;
     } else {
+        if let Some(text) = &ui.translation {
+            let area = native_ui::translation_box(s, logical);
+            native_ui::draw_translation(
+                frame,
+                size,
+                transform,
+                area,
+                text,
+                ui.translation_pending,
+                fonts,
+            )?;
+        }
         native_ui::draw_toolbar(frame, size, transform, logical, s, ui, fonts)?;
         if ui.menu.is_some() {
             native_ui::draw_menu(frame, size, transform, logical, s, ui, fonts)?;

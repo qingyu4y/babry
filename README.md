@@ -68,7 +68,7 @@
   <img src="docs/images/toolbar-context.png" alt="Babry 工具栏细节" width="96%">
 </div>
 
-工具栏提供矩形/圆形/方形/直线/箭头、画笔、文字、递增数字标注、马赛克/高斯模糊、橡皮擦、荧光笔、文字识别、撤销/重做、贴图、保存和复制。形状和效果可从右侧箭头打开菜单切换，左侧点阵用于拖动工具栏。鼠标悬停在按钮上会显示用途和快捷键，例如“保存 (Ctrl+S)”“复制 (Ctrl+C)”“取消截图 (Esc)”。
+工具栏提供矩形/圆形/方形/直线/箭头、画笔、文字、递增数字标注、马赛克/高斯模糊、橡皮擦、荧光笔、文字识别、AI 翻译、撤销/重做、贴图、保存和复制。形状和效果可从右侧箭头打开菜单切换，左侧点阵用于拖动工具栏。鼠标悬停在按钮上会显示用途和快捷键，例如“保存 (Ctrl+S)”“复制 (Ctrl+C)”“取消截图 (Esc)”。
 
 ## 功能一览
 
@@ -80,7 +80,8 @@
 | **隐私处理** | 局部马赛克与连续轨迹模糊，可调节模糊度 |
 | **原位文字** | 直接在画布输入，多行换行，支持 text-input-v3 输入法；字号、字体和颜色与导出同步 |
 | **文字识别** | 选中区域点击 OCR，内置 PP-OCRv6 tiny 模型离线识别中英文，结果复制到剪贴板；模型与 ONNX Runtime 随包提供，不上传图片 |
-| **工作流** | 实时预览、撤销/重做、保存 PNG、复制到剪贴板、Wayland 贴图、OCR 复制文字；工具栏悬停显示用途和快捷键 |
+| **AI 翻译** | 选中区域点击翻译，OCR 后在选区上覆盖显示译文；默认英文到简体中文，可配置 OpenAI 兼容接口和语言 |
+| **工作流** | 实时预览、撤销/重做、保存 PNG、复制到剪贴板、Wayland 贴图、OCR 复制文字、AI 翻译覆盖显示；工具栏悬停显示用途和快捷键 |
 | **轻依赖** | 基础版本仍是 Rust + SCTK + wl_shm + tiny-skia；官方包额外内置约 6MB OCR 模型并动态加载 ONNX Runtime，不需要 grim、Slint、系统 OpenCV、slurp 或合成器的选区命令 |
 
 ## 快速开始
@@ -157,7 +158,7 @@ install -Dm755 target/release/babry ~/.local/bin/babry
 
 ### 2. 安装运行依赖
 
-截图由 Babry 直接通过 Wayland 协议完成：niri/Hyprland/MangoWM 等 wlroots 系合成器使用 `zwlr_screencopy`，KDE Plasma 6.8+ 调用 KWin 自带的 `org.kde.KWin.ScreenShot2`，都不需要 `grim`。复制图片需要 `wl-clipboard`；可选的 `notify-send` 用于状态通知。OCR 已内置在官方/Nix 包中：约 6 MB 的 PP-OCRv6 tiny 模型随包提供，ONNX Runtime 动态加载，不上传图片；自行编译时可用 `--features ocr` 启用。Wayland 下复制文字复用 `wl-copy`，X11 下需要额外的 `xclip`。AUR 包已声明 Fontconfig、xkbcommon 和 Wayland 系统库依赖。
+截图由 Babry 直接通过 Wayland 协议完成：niri/Hyprland/MangoWM 等 wlroots 系合成器使用 `zwlr_screencopy`，KDE Plasma 6.8+ 调用 KWin 自带的 `org.kde.KWin.ScreenShot2`，都不需要 `grim`。复制图片需要 `wl-clipboard`；可选的 `notify-send` 用于状态通知。OCR 已内置在官方/Nix 包中：约 6 MB 的 PP-OCRv6 tiny 模型随包提供，ONNX Runtime 动态加载，不上传图片；自行编译时可用 `--features ocr` 启用。Wayland 下复制文字复用 `wl-copy`，X11 下需要额外的 `xclip`。AI 翻译需要 `curl` 和可访问的 OpenAI 兼容接口，只上传 OCR 文字，不上传截图。AUR 包已声明 Fontconfig、xkbcommon 和 Wayland 系统库依赖。
 
 Arch Linux：
 
@@ -190,6 +191,13 @@ babry --help           # 查看完整帮助
 ```toml
 save_dir = "~/Pictures/Screenshots"
 ocr_close_after = false
+
+[translate]
+base_url = "https://api.openai.com/v1"
+api_key = "sk-..."
+model = "gpt-4o-mini"
+from = "English"
+to = "Simplified Chinese"
 ```
 
 单次指定或通过环境变量覆盖：
@@ -204,6 +212,8 @@ BABRY_SAVE_DIR=~/Pictures/Babry babry
 优先级为 **`--save-dir` → `BABRY_SAVE_DIR` → 配置文件 `save_dir` → `XDG_PICTURES_DIR` → `~/Pictures`**。配置值支持 `~/`、`$HOME/`、`${HOME}/`；配置中的相对路径以配置文件所在目录为基准，命令行和环境变量中的相对路径以本次调用的工作目录为基准。目录只在实际导出时创建；创建或写入失败会报告错误并保留编辑窗口。
 
 `ocr_close_after = true` 时，点击 OCR 并成功复制文字后自动关闭截图窗口；默认 `false`，保留窗口继续标注或保存。
+
+`[translate]` 配置 AI 翻译：`base_url` 是 OpenAI 兼容接口根地址（也可直接写完整的 `/chat/completions` 地址），`api_key` 必填，`model` 默认 `gpt-4o-mini`，`from`/`to` 默认英文和简体中文。点击翻译按钮后，Babry 只用 OCR 识别当前选区，再把文字发送到该接口；图片本身不会上传。API key 明文保存在配置文件中，建议执行 `chmod 600 ~/.config/babry/config.toml`。
 
 后台模式每次截图由调用端重新读取配置并传递保存目录，修改配置无需重启后台，临时 `--save-dir` 不会改变后续截图的默认目录。配置文件不会自动创建或覆盖。
 
@@ -286,8 +296,9 @@ niri 26.04 的 IPC 不返回平铺窗口的 `tile_pos_in_workspace_view`（只�
 - **移动标注**：不选工具时按住已有的图形、线条、文字、序号或笔迹拖动即可平移，空白处拖动仍移动选区；移动可撤销/重做。橡皮擦和马赛克/模糊不参与选择。
 - **旋转和缩放标注**：点中标注后出现选中框，拖四角以中心等比缩放（线宽不变，文字和序号字号随之缩放），拖顶部圆形手柄旋转，按住 `Shift` 吸附 15°；可撤销/重做，`Esc` 取消选中。
 - **长截图**：点击工具栏最右侧按钮开始，按钮变为停止。编辑器和工具栏保持在原处，选区外侧显示边框和进度，选区内的滚轮和键盘交给下方窗口，照常向下滚动页面；再次点击按钮停止。拼接结果放在原选区的位置和大小里，滚轮上下翻页，选区外仍是原截图的遮罩，可以继续用工具栏标注、保存、复制或贴图。吸顶标题栏和底部固定栏只保留一份；连续两帧对不上时会提示“滚动过快”，往回滚一点即可接上。只支持向下滚动，结果高度上限 40000 px。
-- **文字识别**：选中区域后点击工具栏最右侧的 OCR 按钮，识别结果自动复制到剪贴板，顶部提示字符数；默认保留窗口，配置 `ocr_close_after = true` 可在识别后自动关闭；长截图进行中不可用。
-- **预留功能**：折线、录屏、翻译尚未实现，不显示在工具栏。
+- **文字识别**：选中区域后点击工具栏的 OCR 按钮，识别结果自动复制到剪贴板，顶部提示字符数；默认保留窗口，配置 `ocr_close_after = true` 可在识别后自动关闭；长截图进行中不可用。
+- **AI 翻译**：点击翻译按钮后，先识别当前选区文字，再用配置的 OpenAI 兼容接口翻译；译文以蒙版覆盖在选区上，点击选区外或按 `Esc` 关闭。识别或请求失败时保留原图并显示错误；长截图进行中不可用。
+- **预留功能**：折线、录屏尚未实现，不显示在工具栏。
 - **文字**：选择 `字` 工具，在选区内点击即可原位输入。
 - **确认文字**：点击画布外、切换工具或按 `Ctrl+Enter`。
 - **取消文字**：`Esc` 放弃正在输入的文字；不在输入时，`Esc` 依次关闭菜单、取消当前绘制、取消选中工具，最后关闭截图。
@@ -408,7 +419,7 @@ layer-shell 主表面直接显示截图  导出时按 64 行条带合成标注
                      PNG 保存 / 剪贴板 / 贴图进程
 ```
 
-启用 `ocr` 特性时，另外按需裁剪当前选区，交给内置的 PP-OCRv6 tiny 模型识别；ONNX Runtime 动态加载，识别结果直接写入文字剪贴板，不产生临时图片，也不访问网络。
+启用 `ocr` 特性时，另外按需裁剪当前选区，交给内置的 PP-OCRv6 tiny 模型识别；ONNX Runtime 动态加载，识别结果直接写入文字剪贴板，不产生临时图片，也不访问网络。翻译复用同一份 OCR 结果，通过 `curl` 调用配置的 OpenAI 兼容接口；请求体放在 0600 临时文件中，截图图片本身不会离开本机。
 
 指针移动只改变子表面的位置和视口尺寸，不重绘整帧，合成器也不重新上传整张截图。界面以输出的物理分辨率绘制，分数缩放下文字和图标保持清晰。标注历史只保存矢量命令；显示瓦片和导出使用同一套 tiny-skia 绘制，马赛克、模糊和橡皮擦按历史顺序作用于“原图 + 之前的标注”。
 
@@ -434,6 +445,7 @@ src/
 ├── screencopy.rs       # zwlr_screencopy 捕获到 memfd
 ├── shm_image.rs        # memfd 共享内存图像
 ├── smart_select.rs     # 智能选区检测与层级切换
+├── translate.rs        # OpenAI 兼容接口翻译（curl）
 ├── core/               # 像素几何与撤销/重做历史
 ├── lib.rs              # 库模块导出
 └── main.rs             # 命令分发、截图会话与后台
@@ -499,6 +511,7 @@ babry --debug-selection screenshot.png /tmp/babry-cv-debug
 - 输入法预编辑依赖合成器转发 `text-input-v3`；不支持时仍可直接键入。
 - 跨显示器拖动 Pin、贴图持久化尚未实现；长截图暂不支持向上或横向滚动。
 - OCR 只识别当前选区；tiny 模型覆盖常用中英文，低置信度行会被丢弃，X11 下复制文字需要 `xclip`。
+- 翻译只处理当前选区的 OCR 文字，需要 `ocr` 特性和 `curl`；译文排版由模型决定，不保留原文字体、字号和位置，也不支持在蒙版上直接编辑。
 - X11 下文字工具不支持输入法，没有窗口级智能选区。
 
 ## 参与贡献

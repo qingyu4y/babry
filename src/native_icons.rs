@@ -140,6 +140,16 @@ pub fn definitions() -> Vec<Icon> {
                 IconShape::Path("M7 9h10M7 12.5h8M7 16h6", 1.4),
             ],
         ),
+        Icon::new(
+            "translate",
+            &[
+                IconShape::Circle(12.0, 12.0, 8.5, 1.6),
+                IconShape::Path(
+                    "M12 3.5c-3.3 3.2-3.3 13.8 0 17M12 3.5c3.3 3.2 3.3 13.8 0 17M3.5 12h17M5.2 7.5h13.6M5.2 16.5h13.6",
+                    1.2,
+                ),
+            ],
+        ),
         Icon::new("chevron", &[IconShape::Path("m6 9 6 6 6-6", 2.0)]),
     ]
 }
