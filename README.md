@@ -436,7 +436,7 @@ src/
 ├── font.rs             # 按需 mmap 字体与 ttf-parser 轮廓
 ├── kde.rs              # 按需加载 sd-bus 的 KWin ScreenShot2
 ├── marks.rs            # 标注命令与 tiny-skia 光栅化
-├── native_icons.rs     # 工具栏 SVG 图标几何
+├── native_icons.rs     # 内嵌 icons/v2 SVG 并解析为绘制路径
 ├── native_pin.rs       # layer-shell 贴图
 ├── native_ui.rs        # 工具栏、菜单、色盘的布局、命中测试与绘制
 ├── ocr.rs              # 内置 PP-OCRv6 tiny 与选区裁剪

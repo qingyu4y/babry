@@ -465,7 +465,7 @@ const BUTTONS: &[(f32, Action, &str)] = &[
     (486.0, Action::Ocr, "ocr"),
     (522.0, Action::Save, "save"),
     (558.0, Action::Copy, "copy"),
-    (600.0, Action::Cancel, "cancle"),
+    (600.0, Action::Cancel, "cancel"),
 ];
 fn swatch_box(b: BoxF, index: usize) -> BoxF {
     let (x, y, w, h) = if index < 20 {
